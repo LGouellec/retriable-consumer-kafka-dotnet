@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "aRzo+LY9o/38MWY9q38tFz+3wI/aA8WpOLzgZma9DiTiJrkFNRdKTSEAtkdy0UctHTfePhbDI/Mw0Ejf/cTBSg==",
+  "success": true,
+  "projectFilePath": "/Users/slegouellec/Repos/retriable-consumer-kafka-dotnet/retriable-consumer/retriable-consumer.csproj",
+  "expectedPackageFiles": [
+    "/Users/slegouellec/.nuget/packages/confluent.kafka/1.8.2/confluent.kafka.1.8.2.nupkg.sha512",
+    "/Users/slegouellec/.nuget/packages/librdkafka.redist/1.8.2/librdkafka.redist.1.8.2.nupkg.sha512",
+    "/Users/slegouellec/.nuget/packages/system.memory/4.5.0/system.memory.4.5.0.nupkg.sha512"
+  ],
+  "logs": []
+}
