@@ -3,9 +3,8 @@ WORKDIR /app
 
 FROM mcr.microsoft.com/dotnet/sdk:5.0 AS build
 WORKDIR /src
-COPY ["retriable-consumer/retriable-consumer.csproj", "retriable-consumer/"]
+COPY ["*", "retriable-consumer/"]
 RUN dotnet restore "retriable-consumer/retriable-consumer.csproj"
-COPY . .
 WORKDIR "/src/retriable-consumer"
 RUN dotnet build "retriable-consumer.csproj" -c Release -o /app/build
 

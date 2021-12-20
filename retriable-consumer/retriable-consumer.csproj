@@ -9,6 +9,10 @@
 
     <ItemGroup>
       <PackageReference Include="Confluent.Kafka" Version="1.8.2" />
+      <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.0" />
+      <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" />
+      <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="6.0.0" />
+      <PackageReference Include="RestSharp" Version="107.0.0-preview.12" />
     </ItemGroup>
 
 </Project>

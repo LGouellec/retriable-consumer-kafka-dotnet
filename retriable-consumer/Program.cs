@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Confluent.Kafka;
-using Microsoft.VisualBasic.CompilerServices;
+using Microsoft.Extensions.Logging;
 
 namespace retriable_consumer
 {
@@ -17,8 +17,14 @@ namespace retriable_consumer
         public static readonly string EXTERNAL_SERVICE_URL = "KAFKA_EXTERNAL_SERVICE_URL";
         public static readonly string COMMIT_INTERVAL = "KAFKA_COMMIT_INTERVAL_MS";
 
+        public static ILoggerFactory LoggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
+        {
+            builder.SetMinimumLevel(LogLevel.Debug);
+            builder.AddConsole();
+        });
+
         
-        public static async Task Main(string[] args)
+        public static void Main(string[] args)
         {
             var topicName = GetVariableOrDefault(TOPIC_CST, "my_topic");
             var partitionNumber = Int32.Parse(GetVariableOrDefault(PARTITION_CST, "1"));
@@ -35,7 +41,7 @@ namespace retriable_consumer
             };
             AdminClientBuilder adminClientBuilder = new AdminClientBuilder(config);
             
-            await KafkaUtils.CreateTopic(adminClientBuilder.Build(), topicName, partitionNumber);
+            KafkaUtils.CreateTopic(adminClientBuilder.Build(), topicName, partitionNumber);
 
             RetriableConsumer consumer = new RetriableConsumer(bootstrap, topicName, numberRetry, groupId, reset, maxPollInterval, externalServiceUrl, commitInterval);
             consumer.Start();

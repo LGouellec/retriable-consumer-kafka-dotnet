@@ -14,17 +14,24 @@ namespace retriable_consumer
 
         public void PartitionAssigned(IConsumer<string, string> consumer, List<TopicPartition> topicPartitions)
         {
-            throw new System.NotImplementedException();
+            foreach (var tp in topicPartitions)
+            {
+                var offset = consumer.Position(tp);
+                if(offset != Offset.Unset)
+                    _offsets.Add(tp, offset.Value);
+            }
         }
 
         public void PartitionRevoked(IConsumer<string, string> consumer, List<TopicPartitionOffset> topicPartitionOffsets)
         {
-            throw new System.NotImplementedException();
+            foreach (var tp in topicPartitionOffsets)
+                _offsets.Remove(tp.TopicPartition);
         }
 
         public void PartitionLost(IConsumer<string, string> consumer, List<TopicPartitionOffset> topicPartitionOffsets)
         {
-            throw new System.NotImplementedException();
+            foreach (var tp in topicPartitionOffsets)
+                _offsets.Remove(tp.TopicPartition);
         }
     }
 }

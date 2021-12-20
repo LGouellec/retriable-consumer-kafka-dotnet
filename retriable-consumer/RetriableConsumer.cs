@@ -1,9 +1,10 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using Confluent.Kafka;
+using Microsoft.Extensions.Logging;
 
 namespace retriable_consumer
 {
@@ -15,7 +16,6 @@ namespace retriable_consumer
         public string GroupId { get; }
         public string Reset { get; }
         public int MaxPollInterval { get; }
-        public string ExternalServiceUrl { get; }
         public int CommitInterval { get; }
 
         private readonly ExternalService service;
@@ -24,6 +24,7 @@ namespace retriable_consumer
         private IConsumer<string, string> consumer;
         private IDictionary<TopicPartition, long> offsets = new Dictionary<TopicPartition, long>();
         private bool isPaused = false;
+        private readonly ILogger logger;
 
         public RetriableConsumer(string bootstrap, string topicName, int numberRetry, string groupId, string reset,
             int maxPollInterval, string externalServiceUrl, int commitInterval)
@@ -34,8 +35,9 @@ namespace retriable_consumer
             GroupId = groupId;
             Reset = reset;
             MaxPollInterval = maxPollInterval;
-            ExternalServiceUrl = externalServiceUrl;
             CommitInterval = commitInterval;
+            logger = Program.LoggerFactory.CreateLogger<RetriableConsumer>();
+            service = new ExternalService(externalServiceUrl);
         }
 
         public void Start()
@@ -59,27 +61,43 @@ namespace retriable_consumer
             consumer = consumerBuilder.Build();
             
             thread = new Thread(Run);
+            thread.Start();
         }
 
         public void Stop()
         {
+            logger.LogInformation("Stopping retriable consumer ...");
             source.Cancel();
-            
             thread.Join();
+            logger.LogInformation("Retriable consumer is stopped !");
         }
 
         private void Run()
         {
-            long timeoutMs = 1000;
+            long timeoutMs = 250;
+            DateTime lastCommit = DateTime.Now;
             consumer.Subscribe(TopicName);
+            logger.LogInformation($"Subscribe to {TopicName} ....");
             
             while (!source.IsCancellationRequested)
             {
-                // TODO : commit with interval ms
-                var record = consumer.Consume(TimeSpan.FromMilliseconds(timeoutMs));
-                if(isPaused)
-                    consumer.Resume(consumer.Assignment);
+                if (lastCommit.Add(TimeSpan.FromMilliseconds(CommitInterval)) < DateTime.Now)
+                {
+                    consumer.Commit(offsets.Select(c => new TopicPartitionOffset(c.Key, c.Value)));
+                    lastCommit = DateTime.Now;
+                }
                 
+                var record = consumer.Consume(TimeSpan.FromMilliseconds(timeoutMs));
+                if(record != null)
+                    logger.LogInformation($"Received offset {record.Offset} from topic/partition {record.TopicPartition}, key = {record.Message.Key}, value = {record.Message.Value}");
+
+                if (isPaused)
+                {
+                    consumer.Resume(consumer.Assignment);
+                    logger.LogInformation($"Resume consumer with assignment {string.Join(",", consumer.Assignment)}");
+                    isPaused = false;
+                }
+
                 if (record != null)
                 {
                     int retries = 0;
@@ -89,24 +107,46 @@ namespace retriable_consumer
                         try
                         {
                             service.Call();
+                            logger.LogInformation($"Message offset {record.Offset} from topic/partition {record.TopicPartition} is delivered");
                             messageDelivered = true;
                         }
                         catch (Exception e)
                         {
+                            StringBuilder sb = new();
+                            sb.Append(
+                                $"Message offset {record.Offset} from topic/partition {record.TopicPartition} is not delivered. ");
+                            
                             ++retries;
                             if (NumberRetry < 0) // infinite retry
                             {
                                 consumer.Pause(consumer.Assignment);
                                 isPaused = true;
                                 Rewind(consumer);
+                                sb.Append($"Consumer is paused assignment, rewind their offsets and will be retry in some milliseconds.");
                             }
+                            else if (NumberRetry == 0)
+                            {
+                                sb.Append($"Consumer is configured to never retry. So message won't be delivered.");
+                            }
+                            else
+                            {
+                                sb.Append(
+                                    $"Consumer is configured with a max retry {NumberRetry}. Retrying deliver this message ... Retry n° {retries} !");
+                            }
+
+                            logger.LogWarning(sb.ToString());
+
                         }
                     } while (!messageDelivered && retries <= NumberRetry);
                     
-                    if (NumberRetry > 0) // all except infinite retry
+                    if (NumberRetry >= 0 || !isPaused)
                         UpdateOffsetPerPartition(record);
                 }
             }
+            
+            consumer.Unsubscribe();
+            consumer.Close();
+            consumer.Dispose();
         }
 
         private void Rewind(IConsumer<string, string> consumer)
@@ -137,6 +177,8 @@ namespace retriable_consumer
                 offsets[record.TopicPartition] = record.Offset + 1;
             else
                 offsets.Add(record.TopicPartition, record.Offset +1 );
+            
+            logger.LogDebug($"Update offset/partition in metadata hashmap [{record.Offset},{record.TopicPartition}]");
         }
     }
 }
