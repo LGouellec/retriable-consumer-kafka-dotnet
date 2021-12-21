@@ -54,7 +54,7 @@ services:
       KAFKA_BOOTSTRAP_SERVER: "kafka:9092"
       KAFKA_TOPIC: "sample-retry"
       KAFKA_PARTITION: 4
-      KAFKA_NUMBER_RETRY: 0
+      KAFKA_NUMBER_RETRY: 0 # 0 = NO_RETRY, -1 = INFINITE_RETRY, > 0 = MAX_RETRY
       KAFKA_GROUP_ID: "no-retriable-consumer-group"
       KAFKA_RESET_STRATEGY: "earliest"
       KAFKA_MAX_POLL_INTERVAL_MS: 300000
@@ -69,7 +69,7 @@ services:
       KAFKA_BOOTSTRAP_SERVER: "kafka:9092"
       KAFKA_TOPIC: "sample-retry"
       KAFKA_PARTITION: 4
-      KAFKA_NUMBER_RETRY: 10
+      KAFKA_NUMBER_RETRY: 10 # 0 = NO_RETRY, -1 = INFINITE_RETRY, > 0 = MAX_RETRY
       KAFKA_GROUP_ID: "limited-retriable-consumer-group"
       KAFKA_RESET_STRATEGY: "earliest"
       KAFKA_MAX_POLL_INTERVAL_MS: 300000
@@ -84,7 +84,7 @@ services:
       KAFKA_BOOTSTRAP_SERVER: "kafka:9092"
       KAFKA_TOPIC: "sample-retry"
       KAFKA_PARTITION: 4
-      KAFKA_NUMBER_RETRY: -1
+      KAFKA_NUMBER_RETRY: -1 # 0 = NO_RETRY, -1 = INFINITE_RETRY, > 0 = MAX_RETRY
       KAFKA_GROUP_ID: "infinite-retriable-consumer-group"
       KAFKA_RESET_STRATEGY: "earliest"
       KAFKA_MAX_POLL_INTERVAL_MS: 300000
