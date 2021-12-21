@@ -15,7 +15,10 @@ namespace retriable_consumer
         public static readonly string RESET_BEHAVIOR = "KAFKA_RESET_STRATEGY";
         public static readonly string MAX_POLL_INTERVAL_CST = "KAFKA_MAX_POLL_INTERVAL_MS";
         public static readonly string EXTERNAL_SERVICE_URL = "KAFKA_EXTERNAL_SERVICE_URL";
+        public static readonly string SIMULATE_EXTERNAL = "KAFKA_SIMULATE_EXTERNAL";
+        public static readonly string PERCENTAGE_FAILURES_EXTERNAL = "KAFKA_EXTERNAL_PERCENTAGE_FAILURES";
         public static readonly string COMMIT_INTERVAL = "KAFKA_COMMIT_INTERVAL_MS";
+        public static readonly string DURATION_SLEEP_SERVICE_FAIL = "DURATION_SLEEP_SERVICE_FAIL";
 
         public static ILoggerFactory LoggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
         {
@@ -35,6 +38,9 @@ namespace retriable_consumer
             var maxPollInterval = Int32.Parse(GetVariableOrDefault(MAX_POLL_INTERVAL_CST, "60000"));
             var externalServiceUrl = GetVariableOrDefault(EXTERNAL_SERVICE_URL, "http://localhost:8080/service");
             var commitInterval = Int32.Parse(GetVariableOrDefault(COMMIT_INTERVAL, "1000"));
+            var durationSleepIntervalMs = Int32.Parse(GetVariableOrDefault(DURATION_SLEEP_SERVICE_FAIL, "0"));
+            var simulateExternal = Boolean.Parse(GetVariableOrDefault(SIMULATE_EXTERNAL, "false"));
+            var percentageFailureExternal = Int32.Parse(GetVariableOrDefault(PERCENTAGE_FAILURES_EXTERNAL, "0"));
             
             AdminClientConfig config = new AdminClientConfig() {
                 BootstrapServers = bootstrap
@@ -43,7 +49,19 @@ namespace retriable_consumer
             
             KafkaUtils.CreateTopic(adminClientBuilder.Build(), topicName, partitionNumber);
 
-            RetriableConsumer consumer = new RetriableConsumer(bootstrap, topicName, numberRetry, groupId, reset, maxPollInterval, externalServiceUrl, commitInterval);
+            RetriableConsumer consumer = new RetriableConsumer(
+                bootstrap,
+                topicName,
+                numberRetry,
+                groupId,
+                reset,
+                maxPollInterval,
+                externalServiceUrl,
+                commitInterval, 
+                durationSleepIntervalMs,
+                simulateExternal,
+                percentageFailureExternal);
+            
             consumer.Start();
 
             Console.CancelKeyPress += (o, a) => consumer.Stop();

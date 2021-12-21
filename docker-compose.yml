@@ -93,6 +93,23 @@ services:
     depends_on:
       - kafka
 
+  max-poll-internal-raising-consumer:
+    build: retriable-consumer/
+    environment:
+      KAFKA_BOOTSTRAP_SERVER: "kafka:9092"
+      KAFKA_TOPIC: "sample-retry"
+      KAFKA_PARTITION: 4
+      KAFKA_NUMBER_RETRY: 20 # 0 = NO_RETRY, -1 = INFINITE_RETRY, > 0 = MAX_RETRY
+      KAFKA_GROUP_ID: "max-poll-internal-raising-consumer-group"
+      KAFKA_RESET_STRATEGY: "earliest"
+      KAFKA_MAX_POLL_INTERVAL_MS: 60000
+      KAFKA_SIMULATE_EXTERNAL: "true"
+      KAFKA_EXTERNAL_PERCENTAGE_FAILURES: 100
+      DURATION_SLEEP_SERVICE_FAIL: 4000
+      KAFKA_COMMIT_INTERVAL_MS: 10000
+    depends_on:
+      - kafka
+  
   service:
     build: external-web-api/
     container_name: service

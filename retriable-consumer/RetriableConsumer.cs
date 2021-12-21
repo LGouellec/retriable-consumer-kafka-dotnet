@@ -25,9 +25,11 @@ namespace retriable_consumer
         private IDictionary<TopicPartition, long> offsets = new Dictionary<TopicPartition, long>();
         private bool isPaused = false;
         private readonly ILogger logger;
+        private ConsumerConfig config;
 
         public RetriableConsumer(string bootstrap, string topicName, int numberRetry, string groupId, string reset,
-            int maxPollInterval, string externalServiceUrl, int commitInterval)
+            int maxPollInterval, string externalServiceUrl, int commitInterval, int durationSleepIntervalMs,
+            bool simulateExternalService, int percentageFailure)
         {
             Bootstrap = bootstrap;
             TopicName = topicName;
@@ -37,12 +39,12 @@ namespace retriable_consumer
             MaxPollInterval = maxPollInterval;
             CommitInterval = commitInterval;
             logger = Program.LoggerFactory.CreateLogger<RetriableConsumer>();
-            service = new ExternalService(externalServiceUrl);
+            service = new ExternalService(externalServiceUrl, durationSleepIntervalMs, simulateExternalService, percentageFailure);
         }
 
         public void Start()
         {
-            ConsumerConfig config = new ConsumerConfig();
+            config = new ConsumerConfig();
             config.BootstrapServers = Bootstrap;
             config.GroupId = GroupId;
             config.MaxPollIntervalMs = MaxPollInterval;
@@ -78,23 +80,33 @@ namespace retriable_consumer
             DateTime lastCommit = DateTime.Now;
             consumer.Subscribe(TopicName);
             logger.LogInformation($"Subscribe to {TopicName} ....");
-            
+
             while (!source.IsCancellationRequested)
             {
                 if (lastCommit.Add(TimeSpan.FromMilliseconds(CommitInterval)) < DateTime.Now)
                 {
-                    consumer.Commit(offsets.Select(c => new TopicPartitionOffset(c.Key, c.Value)));
-                    lastCommit = DateTime.Now;
+                    try
+                    {
+                        consumer.Commit(offsets.Select(c => new TopicPartitionOffset(c.Key, c.Value)));
+                        lastCommit = DateTime.Now;
+                    }
+                    catch (Exception e)
+                    {
+                        logger.LogError($"Error committing offsets {e.Message}");
+                        RecreateConsumer();
+                    }
                 }
-                
+
                 var record = consumer.Consume(TimeSpan.FromMilliseconds(timeoutMs));
-                if(record != null)
-                    logger.LogInformation($"Received offset {record.Offset} from topic/partition {record.TopicPartition}, key = {record.Message.Key}, value = {record.Message.Value}");
+                if (record != null)
+                    logger.LogInformation(
+                        $"Received offset {record.Offset} from topic/partition {record.TopicPartition}, key = {record.Message.Key}, value = {record.Message.Value}");
 
                 if (isPaused)
                 {
                     consumer.Resume(consumer.Assignment);
-                    logger.LogInformation($"Resume consumer with assignment {string.Join(",", consumer.Assignment)}");
+                    logger.LogInformation(
+                        $"Resume consumer with assignment {string.Join(",", consumer.Assignment)}");
                     isPaused = false;
                 }
 
@@ -106,8 +118,9 @@ namespace retriable_consumer
                     {
                         try
                         {
-                            service.Call();
-                            logger.LogInformation($"Message offset {record.Offset} from topic/partition {record.TopicPartition} is delivered");
+                            service.Call(record);
+                            logger.LogInformation(
+                                $"Message offset {record.Offset} from topic/partition {record.TopicPartition} is delivered");
                             messageDelivered = true;
                         }
                         catch (Exception e)
@@ -115,14 +128,15 @@ namespace retriable_consumer
                             StringBuilder sb = new();
                             sb.Append(
                                 $"Message offset {record.Offset} from topic/partition {record.TopicPartition} is not delivered. ");
-                            
+
                             ++retries;
                             if (NumberRetry < 0) // infinite retry
                             {
                                 consumer.Pause(consumer.Assignment);
                                 isPaused = true;
                                 Rewind(consumer);
-                                sb.Append($"Consumer is paused assignment, rewind their offsets and will be retry in some milliseconds.");
+                                sb.Append(
+                                    $"Consumer is paused assignment, rewind their offsets and will be retry in some milliseconds.");
                             }
                             else if (NumberRetry == 0)
                             {
@@ -138,12 +152,12 @@ namespace retriable_consumer
 
                         }
                     } while (!messageDelivered && retries <= NumberRetry);
-                    
+
                     if (NumberRetry >= 0 || !isPaused)
                         UpdateOffsetPerPartition(record);
                 }
             }
-            
+
             consumer.Unsubscribe();
             consumer.Close();
             consumer.Dispose();
@@ -179,6 +193,23 @@ namespace retriable_consumer
                 offsets.Add(record.TopicPartition, record.Offset +1 );
             
             logger.LogDebug($"Update offset/partition in metadata hashmap [{record.Offset},{record.TopicPartition}]");
+        }
+
+        private void RecreateConsumer()
+        {
+            consumer.Close();
+            consumer.Dispose();
+            
+            RetriableConsumerRebalanceListener consumerRebalanceListener =
+                new RetriableConsumerRebalanceListener(offsets);
+            ConsumerBuilder<string, string> consumerBuilder = new ConsumerBuilder<string, string>(config);
+            consumerBuilder.SetPartitionsAssignedHandler(consumerRebalanceListener.PartitionAssigned);
+            consumerBuilder.SetPartitionsRevokedHandler(consumerRebalanceListener.PartitionRevoked);
+            consumerBuilder.SetPartitionsLostHandler(consumerRebalanceListener.PartitionLost);
+                        
+            consumer = consumerBuilder.Build();
+                        
+            consumer.Subscribe(TopicName);
         }
     }
 }
