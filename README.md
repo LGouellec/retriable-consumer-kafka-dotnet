@@ -4,11 +4,12 @@ Inspired from https://github.com/jeanlouisboudart/retriable-consumer for .NET Cl
 
 ## Build local images
 
-This repository contains some local docker images including :
+This repository contains some local docker images including:
 
-a simple producer a retriable consumer
+* a simple producer 
+* a retriable consumer
 
-To build all images you just need to run :
+To build all images run:
 
 ``` bash
 docker-compose build
@@ -16,26 +17,29 @@ docker-compose build
 
 ## Start environment
 
-Start the environment
 To start the environment simply run the following command
 
 ```
 docker-compose up -d
 ```
 
-This would start :
+This starts:
 
 - Zookeeper
 - Kafka
-- a simple producer, which produce one message per second
-- a consumer with no retry (0 retry, if external service failed, message was skipped)
-- a consumer with limited number of retries (max retry : 10)
-- a consumer with infinite number of retries (use pause/resume Kafka Consumer API, retry the message until web service call is done)
-- a consumer with limited number of retries (max retry : 20) but raising max.poll.interval.ms before end of all retry
+- a simple producer, which produces one message per second
+- a consumer with no retry mechanism (0 retries, if the external service call fails the message is skipped)
+- a consumer with limited number of retries (max retry: 10)
+- a consumer with infinite number of retries (uses pause/resume from Kafka's Consumer API. It retries the message delivery until the web service call is successful)
+- a consumer with a limited number of retries (max retry: 20) which violates the consumer's requirement to regularly call poll. The retry-behavior triggers the `max.poll.interval.ms` timeout
 
-Please observe the logs and behavior of each consumers. 
 
-Visit http://localhost:8082/
+Please see
+* http://localhost:8082/ for consumer lag information
+* the application logs via `docker-compose logs -f <container>` for detailed client behavior.
+
+Key examples are provided below.
+
 
 ![lag](./lag-offsets.png)
 
@@ -46,7 +50,7 @@ Visit http://localhost:8082/
 docker-compose logs -f no-retry-consumer
 ```
 
-This consumer will ignore failures in case of errors when calling an external system.
+This consumer ignores failures in case of errors when calling an external system.
 
 ## limited-retries-consumer
 
@@ -54,9 +58,9 @@ This consumer will ignore failures in case of errors when calling an external sy
 docker-compose logs -f limited-retries-consumer
 ```
 
-This consumer will retry X times in case of errors when calling an external system.
+This consumer retries X times in case of errors when calling an external system.
 
-You can increase the number of max retry on `docker-compose.yml`(env var : 'KAFKA_NUMBER_RETRY')
+Increase the number of max retries via env var `KAFKA_NUMBER_RETRY` in `docker-compose.yml`.
 
 
 ## infinite-retries-consumer
@@ -65,7 +69,9 @@ You can increase the number of max retry on `docker-compose.yml`(env var : 'KAFK
 docker-compose logs -f infinite-retries-consumer
 ```
 
-This consumer will retry infinitely in case of errors when calling an external system. In case of failures, the consumer is paused and offset is set to the previous record. Next call to the poll(timeout) method will honour the timeout and will return an empty record, so this will act as backoff.
+This consumer retries infinitely in case of errors when calling an external system. 
+
+In case of failures when calling the external service, the consumer is paused and the offset is set to the previously successfully processed record. The next call to `poll(timeout)` honours the timeout and returns an empty record. Honouring the timeout while paused acts as backoff between retry attempts.
 
 ## max-poll-internal-raising-consumer
 
@@ -73,6 +79,10 @@ This consumer will retry infinitely in case of errors when calling an external s
 docker-compose logs -f max-poll-internal-raising-consumer
 ```
 
+This consumer forces a violation of the `max.poll.interval.ms` timeout by naively retrying inside of the `poll`-loop.
+
+
+Configuration
 ``` yaml
 KAFKA_NUMBER_RETRY: 20 # 0 = NO_RETRY, -1 = INFINITE_RETRY, > 0 = MAX_RETRY
 KAFKA_GROUP_ID: "max-poll-internal-raising-consumer-group"
@@ -84,21 +94,28 @@ DURATION_SLEEP_SERVICE_FAIL: 4000 # 4 seconds
 KAFKA_COMMIT_INTERVAL_MS: 10000 # 10 seconds
 ```
 
-This consumer will retry 20 times to simulate external system. Unfortunately external system return 100% an error and takes 4 seconds to respond. So for each loop, 20 * 4s = 80s for processing one record.
+The consumer calls an external service inside of the `poll`-loop. On failure, the app retries 20 times. The  external system returns errors in 100% of the calls. Each call takes 4 seconds to respond. 
+Processing individual records, hence, takes 
+`20 * 4 s = 80 s`.
 
-However, max.poll.interval.ms of consumer is configured with 60000 (1 minute) < 80 seconds for processing records.
+`max.poll.interval.ms` is set to `60000 ms (1 minute) < 80 seconds` for processing records.
 
-**So what happens ?**
+**What happens?**
 
-Before the end of loop processing, consumer background thread received a max.poll.internal.ms error internaly. When consumer will commit the offsets after the 20 try, it'll throw an exception in high-level, catched, log and recreate a new instance of consumer from scratch.
+During the processing (retrying to deliver to the external system), a consumer background thread throws a `max.poll.internal.ms`-error internally, and the consumer leaves the consumer group.
 
-New consumer instance will reprocess previous record (because never committed), retry 20 times, etc ... So it's like an infinite retry using a loop retry processing without pause&resume API.
+When the consumer attempts to commit the offsets after the 20 retries an exception is thrown. The consumer has left the group and is not a known group member. 
 
-However, when you leave consumer group, you lost your offset in-memory dictionary and that's why you have re-process previous record indefinitely.
+The program catches the expection, logs it and, creates a new consumer instance from scratch.
 
-In conclusion, when you use a loop retry processing be carefull about 3 things :
-- unitary time to call external system
-- number of retry
-- max.poll.internal.ms consumer configuration
+The new consumer instance reprocesses the previous record(s) - there was no successful commit - retries to call the external service 20 times, etc.  
 
-**max-poll-internal-ms > number-of-retry * max(unitary-call-time)**
+Since the consumer looses its in-memory offset dictionary when leaving the group, the consumer has to re-process the same record indefinitely.  
+
+When naively retrying inside of the `poll`- loop be aware of the following:
+* unitary time to call the external system
+* number of retries
+* `max.poll.internal.ms` consumer configuration
+
+The expected retry period must be smaller than the `max.poll.interval.ms`-timeout. 
+I.e. `number-of-retries * max(unitary-call-time) < max-poll-internal-ms`. Otherwise, the consumer instance is evicted from the consumer group.
