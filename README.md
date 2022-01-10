@@ -31,7 +31,7 @@ This starts:
 - a consumer with no retry mechanism (0 retries, if the external service call fails the message is skipped)
 - a consumer with limited number of retries (max retry: 10)
 - a consumer with infinite number of retries (uses pause/resume from Kafka's Consumer API. It retries the message delivery until the web service call is successful)
-- a consumer with a limited number of retries (max retry: 20) which violates the consumer's requirement to regularly call poll. The retry-behavior triggers the `max.poll.interval.ms` timeout
+- a consumer with a limited number of retries (max retry: 20) which violates the consumer's requirement to regularly call poll. The retry-behavior triggers the `max.poll.interval.ms`-timeout
 
 
 Please see
